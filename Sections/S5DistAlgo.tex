@@ -1,0 +1,230 @@
+\section{Distributed Algorithm}
+
+\subsection{Assumptions}
+
+We take the following assumptions for our distributed system :
+
+\begin{itemize}
+    \item Each user has a unique id
+    \item Each user knows other users
+    \item Each user is a node in itself
+    \item More than 2/3rd of the users (or specifically the committee members) are honest (non-faulty and form the largest sub) in the system (non-faulty)
+    \item New requests for bond coin keep coming in
+    \item Each user has a unique public address known to other user while its active
+    \item Asynchronous system (Network Faults can happen)
+    \item Eventually synchronous system (Eventually all network faults would be resolved)
+    \item Reliable connection
+    \item Each function is executed atomically
+\end{itemize}
+
+\subsection{Abbreviations}
+
+Following are the abbreviations used to denote some fields and classes :
+
+\begin{itemize}
+    \item id = User's ID
+	\item mt = Transaction Type
+	\item sid = Sender's ID
+	\item rid = Reciever's ID
+	\item t = Timestamp, can also be the id of the last block seen by the user to avoid time conflicts
+	\item cc = CashCoin
+	\item bc = BondCoin
+	\item pk = Public Key of a user
+	\item sk = Secret Key / Private Key of a user
+	\item val = Transaction amount value that a user wants to send to another user
+	\item h = hash obtained on applying a verifiable random function on the message using sk
+	\item p = proof for verifying the hash of a message using that user's pk
+	\item pa = public address for committee to communicate with this node during consensus
+	\item fb = First Block in which a user starts giving consensus
+	\item lb = Last Block after which a user stops giving consensus
+	\item cps = Cryptocurrency Participation Score
+	\item k = The number of blocks till which a transaction is valid. If a transaction is more than 
+\end{itemize}
+
+\subsection{Message Types}
+
+Following messages will be exchanged in the system :
+
+\begin{enumerate}
+    \item Transfer : Message gossiped by the a node with id sid to send val amount of cashcoins to a node with id rid at timestamp t.
+    \begin{verbatim}
+Message Transfer
+{
+    mt
+    sid
+    rid
+    val
+    tc
+    t
+    h
+    p
+}
+    \end{verbatim}
+    \item RequestBC : Message requesting to convert cashcoin to bondcoin and become a member of the committee.
+    \begin{verbatim}
+Message RequestBC
+{
+    mt
+    sid
+    pa
+    tc
+    t
+    h
+    p
+}
+    \end{verbatim}
+    \item RequestCC : Message requesting to convert bondcoin to cashcoin before maturity.
+    \begin{verbatim}
+Message RequestCC
+{
+    mt
+    sid
+    tc
+    t
+    h
+    p
+}
+    \end{verbatim}
+    \item ChangePK : Message requesting to change pk.
+    \begin{verbatim}
+Message ChangePK
+{
+    mt
+    sid
+    pk // New Public Key
+    tc
+    t
+    h
+    p
+}
+    \end{verbatim}
+    \item Join : Message requesting to join the system as a new user. The new id would be mentioned in the next few blocks as confirmation.
+    \begin{verbatim}
+Message Join
+{
+    mt
+    pk
+    tc
+    t
+    h
+    p
+}
+    \end{verbatim}
+    \item BlockCommit : Message broadcasted to give info about a new block.
+    \begin{verbatim}
+Message BlockCommit
+{
+    mt  // type of message
+    sid // sender id
+    block // block list element
+    h // hash
+    p // proof
+}
+    \end{verbatim}
+\end{enumerate}
+
+\subsection{Variables stored at each node}
+
+\begin{enumerate}
+    \item pk = Public Key : This key is advertised by the node so that other nodes can use it to verify its messages, its unique to a node and used to index the its information in the database.
+    \item sk = Private Key : This is the only private state of the node (same as in algorand) and is used to sign the messages sent by it.
+    \item cmq = CommMemm : Queue of members of the committee arranged according to the expiration of their voting rights. The new committee members are added at the tail of this queue and oldest committee members at the head of the queue are popped as their rights expire. When a new committee member is added, they would be pushed to the tail of the queue.
+    \item ll = Ledger : List of blocks of transactions that have been committed till now.
+    \item ssd = SystemState : Dictionary of users of the system with their public ids as the key and the amount of ccs they have as the value. Additional information can also be kept in the structure to calculate the likelihood of that user being selected in the committee if the user contests for voting rights. These information include the number of transactions he has done in the past
+    \item maxid (for ca only) : denotes the number of unique ids already given away to nodes starting at 0.
+\end{enumerate}
+
+#A user might exploit the number of transactions to gain voting rights but in the process he would have to pay the transaction fees for each transaction. Also, this is the hard work the adversary has to do for just one user but he would be in a position to attack only if he has access to half of the committee members.
+#As the ca keeps track of the state of the system and knows the committee, it would know if a node requesting to leave the system is part of the committee or not and hence, can accordingly approve the request.
+#For nodes, not participating in the consensus whose ccs are freezed, a penalty may be applicable for storage of the ccs, to discourage such events.
+#ssd values are objects having following fields :
+    active : indicating whether joined in the network
+    id : unique id given by the ca on joining the network
+    cc : amt of cashcoins the node has
+    member : indicating whether a member of committee or not
+#Transactions also contain the members which are losing their rights and the new members that are going to be added, accordingly their ccoins value shall be updated in the network
+#The committee members must agree with each other, hence while joining the committee they can compare their states with older members of the committee. <Lemma> The state of any committee member at time t can be obtained by applying the transactions change on any state at time tcap even though the present committee member might not be a part of previous committee. </Lemma> can be proved as outgoing cms must have the same state as incoming cms, can put induction to prove. Instead, can also put this check while selecting new committee members and filter out those who don't have the same state.
+#The other members of the system can also verify to whether they have the same state as the current committee members.
+#Each user would be listening to the transactions being broadcasted and the blocks being committed, so that once a user has got acceptance in a block, he can start committing
+#To change the public key, the node needs to send the corresponding request to the ca who then needs to forward it to the committee as a transaction. It needs to check first that the key is unique.
+#Functions can run in parallel threads
+#Transaction Functions :
+    The transaction fees is decided by a function of committee size (this means everybody must know who all are in the committee). It satisfies following conditions :
+    1) It is positive for all possible committee sizes.
+    2) It has a maximum value at anchor point. This is the point which define the value of the transactions fees and committee size when the system is in stable state.
+    3) The function must be a strictly increasing function below the anchor point and strictly decreasing function above the anchor point.
+#This anchor point may be adjusted during the execution. Also, it doesn't matter what is the actual penalty. Since, it is going to be equally distributed between the members.
+We choose functions of the form f=$x^n*e^-x$ whose derivative has n solutions with n-1 0s and 1 non zero value. x = 0 or x = n are the points and max value is $n^n*e^-n$. Therefore, if we want to have anchor point at m (stable committee size) and transaction fees at p (proportion of transaction amount deducted as fees) then we can convert this function the following way.
+To set the anchor point at m, substite x = $x'*n/30$ f' = $(x'*n/30)^n*e^-(x'*n/30)$ . To set max value at p, substitue f'' = $f'*p/(n^n*e^-n)$.
+Note that as the value of n increases the peak becomes sharper and sharper
+#Flaw : If we are doing a majority, should those who are not part of majority also earn from the transaction fees, if not then it might be inconsistent.
+#Flaw : If there is no consensus, then do the voters agree on empty block like in algorand, in that case do we allow new users to come and old users to retire? If new users are put in queue then do we allow them to participate from the next round itself or do we wait for some time or randomly pick them up?
+
+VerifyMessage(m = message, pk = public key, e = encryption, p = proof) :
+    Use pk and p to verify whether e is a valid encryption of m
+    If it is valid :
+        return true
+    Else :
+        return false
+
+% SendMessage(m = message, j = node) :
+%     e, p = Encrypt(m#t, sk)
+%     Send 
+EncryptMessage(m = message, t) :
+    e, p = encryption(m#t, sk)
+    return e,p
+    
+SendCommittee(m=message) :
+    e,p = Encrypt(m,sk)
+    For each member in cmq :
+        Send m to member
+        
+Broadcast(m=message) :
+    for all pk in ssd.keys :
+        If ssd[pk].active = 1 :
+            Send m to ssd[pk].id
+    
+Consul agent : Special node for tracking the nodes which are joined in the system and which are dead and finding each other. The consul agent acts like a normal node except it can never participate in the consensus. But, it does keep track of the state of the system and the committee members like every other node. It does not have any cc or bc allotted to it.
+
+On recieving Join(pk = Public Key , e(sk, t) = Encryption of t using sk(secret key) , p = proof(sk, t), t = timestamp when the message was sent) from node i :
+    // ca verifies whether the message is valid by calling VerifyMessage()
+    treply = current time
+    
+    // If message verification fails
+    If VerifyMessage(t, pk, e, p) = False :
+        mreply = "Signature cannot be verified"
+        Send RejectJoin(mreply, ereply, preply, treply) to j
+    
+    // If the node is already joined
+    If pk in ssd.keys and ssd[pk].active = true :
+        mreply = "Node already joined with id " + ssd[pk].id
+        ereply, preply = EncryptMessage(mreply, treply)
+        Send RejectJoin(mreply, ereply, preply, treply) to j
+    
+    // The node is new, pk is unique
+    // The ca needs to send the request as a transaction to the committee and only after it gets committed, the new node can be added after which the ca can broadcast its id to all the nodes. After sending the message to all the members, if the ca doesn't recieve committed within some blocks(based on some maximum time delta between sending a transaction and getting it committed) then it replies the node the transaction is failed otherwise it sends a success message to it
+    atomic {
+            tempid = maxid
+            maxid++
+        }
+    mreply = "Add a new node with public key "+pk+" id "+tempid
+    ereply,preply = EncryptMessage(mreply, treply)
+    mreply = AddNode(mreply, ereply, preply, treply)
+    SendComittee(mreply)
+    
+    If ca sees the corresponding transaction getting committed within some blocks :
+        ssd[pk] = {active = 1, id = tempid, cc = 0, member = 0}
+        mreply = "Node accepted to join with id " + ssd[pk].id
+        ereply, preply = EncryptMessage(mreply, treply)
+        Send AcceptJoin(mreply, ereply, preply, treply) to j
+        
+        tbroadcast = current time
+        mbroadcast = "New node accepted to join with id "+ssd[pk].id+" and pk "+pk
+        ebroadcast, pbroadcast = EncryptMessage(mbroadcast, tbroadcast)
+        mbroadcast = AddNodeBroadcast(mbroadcast, ebroadcast, pbroadcast, tbroadcast)
+        Broadcast(mbroadcast)
+    
+    Else :
+        mreply = "Committee didn't accept"
+        ereply, preply = EncryptMessage(mreply, treply)
+        Send RejectJoin(mreply, ereply, preply, treply) to j
